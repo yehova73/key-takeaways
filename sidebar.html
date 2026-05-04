@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Key Takeaways</title>
+  <link rel="stylesheet" href="sidebar.css" />
+</head>
+<body>
+  <div class="sidebar-app">
+    <header class="topbar">
+      <div>
+        <p class="brand">Key Takeaways</p>
+        <p class="subtitle">Folders, search, and saved state in the sidebar.</p>
+      </div>
+      <button id="add-root-btn" class="primary-btn">New folder</button>
+    </header>
+
+    <div class="search-row">
+      <input id="search-input" type="search" placeholder="Search folders..." autocomplete="off" />
+      <span class="search-hint">Type to filter saved folders</span>
+    </div>
+
+    <div id="folder-list" class="folder-list"></div>
+  </div>
+
+  <template id="folder-row-template">
+    <div class="folder-item">
+      <div class="folder-title-row">
+        <button class="toggle-btn" aria-label="Toggle children"></button>
+        <button class="folder-label"></button>
+      </div>
+      <div class="folder-actions">
+        <button class="action-btn add-btn" title="Add subfolder">+ Subfolder</button>
+        <button class="action-btn rename-btn" title="Rename folder">Rename</button>
+        <button class="action-btn delete-btn" title="Delete folder">Delete</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

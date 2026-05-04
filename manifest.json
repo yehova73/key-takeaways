@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Key Takeaways",
+  "version": "1.0.0",
+  "description": "A Chrome sidebar extension for folders, subfolders, search, and saved data.",
+  "permissions": ["storage", "sidePanel", "contextMenus"],
+  "action": {
+    "default_title": "Open Key Takeaways Sidebar"
+  },
+  "side_panel": {
+    "default_path": "sidebar.html",
+    "default_title": "Key Takeaways Sidebar"
+  },
+  "background": {
+    "service_worker": "./background.js"
+  }
+}
