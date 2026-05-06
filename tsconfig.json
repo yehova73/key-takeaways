@@ -5,7 +5,8 @@
     "outDir": "./dist",
     "rootDir": ".",
     "strict": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "allowJs": true
   },
   "include": ["**/*"],
   "exclude": ["node_modules"]

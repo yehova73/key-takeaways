@@ -5,56 +5,42 @@ declare const chrome: any;
 const STORAGE_KEY = "folderTree";
 const ROOT_MENU_ID = "save-takeaway-root";
 
-/**
- * Generate a text fragment URL for highlighting
- * Format: baseUrl#:~:text=[prefix-,]textStart[,textEnd][,-suffix]
- */
-function generateTextFragmentUrl(
-  baseUrl: string,
-  displayText: string,
-  prefix?: string,
-  suffix?: string,
-  textStart?: string,
-  textEnd?: string,
-): string {
+function getBaseUrlWithQuery(rawUrl: string): string {
   try {
-    // Remove existing hash from URL
-    const url = new URL(baseUrl);
-    url.hash = "";
-    const cleanUrl = url.toString();
+    const url = new URL(rawUrl);
 
-    // Build the text fragment
-    let fragment = "";
-
-    // Add prefix if provided
-    if (prefix && prefix.trim()) {
-      fragment += encodeURIComponent(prefix.trim()) + "-,";
-    }
-
-    // Use textStart/textEnd format if provided, otherwise use displayText
-    if (textStart && textEnd) {
-      fragment +=
-        encodeURIComponent(textStart.trim()) +
-        "," +
-        encodeURIComponent(textEnd.trim());
-    } else if (textStart) {
-      fragment += encodeURIComponent(textStart.trim());
-    } else {
-      fragment += encodeURIComponent(displayText.trim());
-    }
-
-    // Add suffix if provided
-    if (suffix && suffix.trim()) {
-      fragment += ",-" + encodeURIComponent(suffix.trim());
-    }
-
-    // Create text fragment URL
-    return `${cleanUrl}#:~:text=${fragment}`;
-  } catch (error) {
-    console.error("[Key Takeaways] Error generating text fragment URL:", error);
-    return baseUrl;
+    // Keep origin + pathname + search (query params)
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch (e) {
+    console.warn("Invalid URL:", rawUrl);
+    return rawUrl; // fallback
   }
 }
+
+interface FragmentData {
+  textStart?: string;
+  textEnd?: string;
+  prefix?: string;
+  suffix?: string;
+}
+
+function getLinkToSelected(baseUrl: string, frag: FragmentData | null): string {
+  if (!frag || !frag.textStart) return baseUrl;
+
+  const prefix = frag.prefix ? `${encodeURIComponent(frag.prefix)}-,` : "";
+  const suffix = frag.suffix ? `,-${encodeURIComponent(frag.suffix)}` : "";
+  const textStart = encodeURIComponent(frag.textStart);
+  const textEnd = frag.textEnd ? `,${encodeURIComponent(frag.textEnd)}` : "";
+
+  console.log(
+    `prefix: ${prefix}\ntextstart: ${textStart}\ntextend: ${textEnd}\nsuffix: ${suffix}`,
+  );
+  const url = `${baseUrl}#:~:text=${prefix}${textStart}${textEnd}${suffix}`;
+  console.log(`fragment url: ${url}`);
+  return url;
+}
+// Background must not access page DOM. Content scripts generate fragments and respond
+// to `getExpandedSelection` messages. See content-script.ts for the generator.
 
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
@@ -116,53 +102,58 @@ chrome.contextMenus.onClicked.addListener(async (info: any, tab: any) => {
   if (!menuItemId.startsWith("folder-")) return;
 
   const folderId = menuItemId.replace("folder-", "");
-  const url: string = info.linkUrl ?? info.pageUrl ?? tab?.url ?? "";
-  if (!url) return;
-  const originalText: string | undefined = info.selectionText;
+  console.log("aici", info);
+  const rawUrl: string = info.linkUrl ?? info.pageUrl ?? tab?.url ?? "";
+  console.log("Context menu clicked:", {
+    folderId,
+    url: rawUrl,
+    selection: info.selectionText,
+  });
+  if (!rawUrl) return;
+  const selectedText: string | undefined = info.selectionText;
+  if (!selectedText) return;
 
-  if (!originalText) return;
+  const baseUrl = getBaseUrlWithQuery(rawUrl);
 
-  try {
-    // Ask content script to generate text fragment
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      action: "getExpandedSelection",
-      text: originalText,
-    });
-
-    // Extract fragment data from response
-    const textStart = response?.textStart || originalText;
-    const textEnd = response?.textEnd;
-    const prefix = response?.prefix;
-    const suffix = response?.suffix;
-
-    // Reconstruct full text for display
-    const displayText = textEnd ? `${textStart} ... ${textEnd}` : textStart;
-
+  const handleAndStore = (finalUrl: string) => {
     chrome.storage.local.get(STORAGE_KEY, (data: any) => {
       const tree: FolderNode[] = data[STORAGE_KEY] ?? [];
-      addUrlToFolder(
-        tree,
-        folderId,
-        url,
-        displayText,
-        prefix,
-        suffix,
-        textStart,
-        textEnd,
-      );
+      console.log("Before adding URL:", selectedText);
+      addUrlToFolder(tree, folderId, finalUrl, selectedText);
+      console.log("After adding URL:", selectedText);
       chrome.storage.local.set({ [STORAGE_KEY]: tree });
     });
-  } catch (error) {
-    console.error(
-      "[Key Takeaways] Error getting fragment data, using original:",
-      error,
+  };
+
+  if (tab?.id != null) {
+    chrome.tabs.sendMessage(
+      tab.id,
+      { action: "getExpandedSelection" },
+      (response: any) => {
+        if (chrome.runtime.lastError) {
+          console.warn(
+            "No content script response:",
+            chrome.runtime.lastError.message,
+          );
+          handleAndStore(baseUrl);
+          return;
+        }
+
+        const frag: FragmentData | null = response ?? null;
+        console.log("frag", frag);
+
+        if (!frag) {
+          handleAndStore(baseUrl);
+          return;
+        }
+
+        const derective_url = getLinkToSelected(baseUrl, frag);
+        console.log("derective_url", derective_url);
+        handleAndStore(derective_url);
+      },
     );
-    // Fallback to original text if content script fails
-    chrome.storage.local.get(STORAGE_KEY, (data: any) => {
-      const tree: FolderNode[] = data[STORAGE_KEY] ?? [];
-      addUrlToFolder(tree, folderId, url, originalText);
-      chrome.storage.local.set({ [STORAGE_KEY]: tree });
-    });
+  } else {
+    handleAndStore(baseUrl);
   }
 });
 
@@ -170,51 +161,23 @@ function addUrlToFolder(
   nodes: FolderNode[],
   folderId: string,
   url: string,
-  highlight?: string,
-  prefix?: string,
-  suffix?: string,
-  textStart?: string,
-  textEnd?: string,
+  selectedText?: string,
 ): boolean {
   for (const node of nodes) {
     if (node.id === folderId) {
       if (!node.urls) node.urls = [];
       const entry: UrlEntry = {
         url,
-        highlight,
-        textFragmentUrl: highlight
-          ? generateTextFragmentUrl(
-              url,
-              highlight,
-              prefix,
-              suffix,
-              textStart,
-              textEnd,
-            )
-          : undefined,
+        highlight: selectedText,
       };
       if (
-        !node.urls.some(
-          (e) => e.url === url && (!highlight || e.highlight === highlight),
-        )
+        !node.urls.some((e) => e.url === url && e.highlight === selectedText)
       ) {
         node.urls.push(entry);
       }
       return true;
     }
-    if (
-      addUrlToFolder(
-        node.children,
-        folderId,
-        url,
-        highlight,
-        prefix,
-        suffix,
-        textStart,
-        textEnd,
-      )
-    )
-      return true;
+    if (addUrlToFolder(node.children, folderId, url, selectedText)) return true;
   }
   return false;
 }

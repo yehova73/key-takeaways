@@ -1,117 +1,160 @@
 "use strict";
 /**
- * Content script for extracting text selections with context for text fragments.
+ * Content script for generating text fragments following Chrome's algorithm.
+ * Based on https://github.com/GoogleChromeLabs/text-fragments-polyfill
  */
+const BLOCK_ELEMENTS = [
+    "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "BR", "DETAILS", "DIALOG",
+    "DD", "DIV", "DL", "DT", "FIELDSET", "FIGCAPTION", "FIGURE", "FOOTER",
+    "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HGROUP", "HR",
+    "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL",
+    "TR", "TH", "TD", "COLGROUP", "COL", "CAPTION", "THEAD", "TBODY", "TFOOT",
+];
 /**
- * Get all text content from a range
+ * Check if a node is a block element
  */
-function getTextFromRange(range) {
-    const tempDiv = document.createElement("div");
-    tempDiv.appendChild(range.cloneContents());
-    return tempDiv.textContent || "";
-}
-/**
- * Get text content before a range (for prefix context)
- */
-function getTextBefore(range, maxLength = 50) {
-    const beforeRange = document.createRange();
-    beforeRange.selectNodeContents(document.body);
-    beforeRange.setEnd(range.startContainer, range.startOffset);
-    const text = getTextFromRange(beforeRange);
-    const words = text.trim().split(/\s+/);
-    // Get last few words as prefix (typically 3-5 words)
-    const prefixWords = words.slice(-5);
-    return prefixWords.join(" ");
-}
-/**
- * Get text content after a range (for suffix context)
- */
-function getTextAfter(range, maxLength = 50) {
-    const afterRange = document.createRange();
-    afterRange.selectNodeContents(document.body);
-    afterRange.setStart(range.endContainer, range.endOffset);
-    const text = getTextFromRange(afterRange);
-    const words = text.trim().split(/\s+/);
-    // Get first few words as suffix (typically 3-5 words)
-    const suffixWords = words.slice(0, 5);
-    return suffixWords.join(" ");
+function isBlockElement(node) {
+    return (node.nodeType === Node.ELEMENT_NODE &&
+        BLOCK_ELEMENTS.includes(node.tagName.toUpperCase()));
 }
 /**
  * Expand range to word boundaries
  */
-function expandRangeToWordBoundaries(range) {
-    const newRange = range.cloneRange();
-    // Expand start
-    if (newRange.startContainer.nodeType === Node.TEXT_NODE) {
-        const textNode = newRange.startContainer;
-        const text = textNode.textContent || "";
-        let start = newRange.startOffset;
-        // Move back to word boundary
+function expandRangeToWordBound(range) {
+    // Expand start to word boundary
+    if (range.startContainer.nodeType === Node.TEXT_NODE) {
+        const text = range.startContainer.textContent || "";
+        let start = range.startOffset;
+        // Move back to find word start
         while (start > 0 && /\w/.test(text[start - 1])) {
             start--;
         }
-        newRange.setStart(textNode, start);
+        range.setStart(range.startContainer, start);
     }
-    // Expand end
-    if (newRange.endContainer.nodeType === Node.TEXT_NODE) {
-        const textNode = newRange.endContainer;
-        const text = textNode.textContent || "";
-        let end = newRange.endOffset;
-        // Move forward to word boundary
+    // Expand end to word boundary
+    if (range.endContainer.nodeType === Node.TEXT_NODE) {
+        const text = range.endContainer.textContent || "";
+        let end = range.endOffset;
+        // Move forward to find word end
         while (end < text.length && /\w/.test(text[end])) {
             end++;
         }
-        newRange.setEnd(textNode, end);
+        range.setEnd(range.endContainer, end);
     }
-    return newRange;
 }
 /**
- * Extract selection data with context for generating text fragment URL
+ * Get text from a range, handling multiple nodes
  */
-function getSelectionData() {
+function getTextFromRange(range) {
+    return range.toString().replace(/\s+/g, " ").trim();
+}
+/**
+ * Check if range crosses block boundaries
+ */
+function crossesBlockBoundary(range) {
+    const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_ELEMENT, {
+        acceptNode: (node) => {
+            if (!range.intersectsNode(node)) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            return isBlockElement(node)
+                ? NodeFilter.FILTER_ACCEPT
+                : NodeFilter.FILTER_SKIP;
+        },
+    });
+    let blockCount = 0;
+    while (walker.nextNode()) {
+        blockCount++;
+        if (blockCount > 1)
+            return true;
+    }
+    return false;
+}
+/**
+ * Get prefix context (words before selection)
+ */
+function getPrefix(range) {
+    const prefixRange = document.createRange();
+    prefixRange.selectNodeContents(document.body);
+    prefixRange.setEnd(range.startContainer, range.startOffset);
+    const text = prefixRange.toString().replace(/\s+/g, " ").trim();
+    const words = text.split(/\s+/);
+    return words.slice(-5).join(" ");
+}
+/**
+ * Get suffix context (words after selection)
+ */
+function getSuffix(range) {
+    const suffixRange = document.createRange();
+    suffixRange.selectNodeContents(document.body);
+    suffixRange.setStart(range.endContainer, range.endOffset);
+    const text = suffixRange.toString().replace(/\s+/g, " ").trim();
+    const words = text.split(/\s+/);
+    return words.slice(0, 5).join(" ");
+}
+/**
+ * Generate text fragment data from selection
+ */
+function generateFragmentFromSelection() {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) {
         return null;
     }
     try {
         const range = selection.getRangeAt(0);
-        const expandedRange = expandRangeToWordBoundaries(range);
-        // Get the full selected text
-        let text = getTextFromRange(expandedRange).trim();
-        // Get prefix and suffix context
-        const prefix = getTextBefore(expandedRange);
-        const suffix = getTextAfter(expandedRange);
-        const result = {
-            text,
-            prefix: prefix || undefined,
-            suffix: suffix || undefined,
-        };
-        // For longer text, use textStart/textEnd format
-        // Chrome typically uses this when text is > ~300 chars or spans multiple blocks
-        const words = text.split(/\s+/);
-        if (words.length > 20) {
-            // Use first 3-4 words as start, last 3-4 words as end
-            const startWords = words.slice(0, 4).join(" ");
-            const endWords = words.slice(-4).join(" ");
-            result.textStart = startWords;
-            result.textEnd = endWords;
+        // Expand to word boundaries
+        expandRangeToWordBound(range);
+        const fullText = getTextFromRange(range);
+        if (!fullText) {
+            return null;
         }
-        return result;
+        const words = fullText.split(/\s+/);
+        const needsRangeMatch = fullText.length > 300 || crossesBlockBoundary(range);
+        let fragment;
+        if (needsRangeMatch) {
+            // Use textStart/textEnd format for long text or text crossing blocks
+            const numStartWords = Math.min(4, Math.floor(words.length / 2));
+            const numEndWords = Math.min(4, Math.floor(words.length / 2));
+            fragment = {
+                textStart: words.slice(0, numStartWords).join(" "),
+                textEnd: words.slice(-numEndWords).join(" "),
+            };
+        }
+        else {
+            // Use exact text match
+            fragment = {
+                textStart: fullText,
+            };
+        }
+        // Add context for disambiguation
+        const prefix = getPrefix(range);
+        const suffix = getSuffix(range);
+        if (prefix) {
+            // Take last few words for prefix
+            const prefixWords = prefix.split(/\s+/);
+            fragment.prefix = prefixWords.slice(-3).join(" ");
+        }
+        if (suffix) {
+            // Take first few words for suffix
+            const suffixWords = suffix.split(/\s+/);
+            fragment.suffix = suffixWords.slice(0, 3).join(" ");
+        }
+        return fragment;
     }
     catch (error) {
-        console.error("[Key Takeaways] Error getting selection data:", error);
+        console.error("[Key Takeaways] Error generating fragment:", error);
         return null;
     }
 }
 /**
- * Listen for requests to get selection data
+ * Listen for requests to generate text fragment
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "getExpandedSelection") {
-        const selectionData = getSelectionData();
-        sendResponse(selectionData || { text: request.text || "" });
+        const fragment = generateFragmentFromSelection();
+        sendResponse(fragment || { text: request.text || "" });
     }
-    return true; // Keep the message channel open for async response
+    return true;
 });
 console.log("[Key Takeaways] Content script loaded");
 //# sourceMappingURL=content-script.js.map
