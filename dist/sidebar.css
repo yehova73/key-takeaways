@@ -1,6 +1,12 @@
 :root {
   color-scheme: light;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   background: #f5f7fb;
   color: #0f172a;
 }
@@ -164,10 +170,10 @@ body {
   font-size: 0.8rem;
   list-style: disc;
   color: #475569;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .url-list a {
@@ -189,4 +195,40 @@ body {
   display: inline-block;
   max-width: 100%;
   word-break: break-word;
+}
+
+.url-link-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.url-link {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-btn {
+  flex-shrink: 0;
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.view-btn:hover {
+  background: #059669;
+}
+
+.view-btn:active {
+  background: #047857;
 }

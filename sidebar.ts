@@ -127,12 +127,38 @@ function createFolderItem(node: FolderNode): HTMLDivElement {
     urlList.className = "url-list";
     node.urls.forEach((entry) => {
       const li = document.createElement("li");
+      const linkContainer = document.createElement("div");
+      linkContainer.className = "url-link-container";
+
       const a = document.createElement("a");
       a.href = entry.url;
       a.textContent = entry.url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      li.appendChild(a);
+      a.className = "url-link";
+      linkContainer.appendChild(a);
+
+      // Add View button if there's a highlight
+      if (entry.highlight && entry.textFragmentUrl) {
+        const viewBtn = document.createElement("button");
+        viewBtn.className = "view-btn";
+        viewBtn.textContent = "View";
+        viewBtn.title = "View and highlight this quote";
+        viewBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          try {
+            // Open the URL with text fragment - browser will handle highlighting
+            await chrome.tabs.create({ url: entry.textFragmentUrl });
+          } catch (error) {
+            console.error("[Key Takeaways] Error opening URL:", error);
+            alert("Failed to open page. Please try again.");
+          }
+        });
+        linkContainer.appendChild(viewBtn);
+      }
+
+      li.appendChild(linkContainer);
+
       if (entry.highlight) {
         const highlightDiv = document.createElement("div");
         highlightDiv.className = "highlight-text";

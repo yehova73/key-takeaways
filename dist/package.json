@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && npm run copy-assets",
+    "build": "node build.js",
     "copy-assets": "cpx \"*.{html,css,json}\" dist"
   },
   "keywords": [],
